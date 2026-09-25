@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ohio Firefly Night</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117;
+    color: #e8dcc8;
+    font-family: Georgia, 'Times New Roman', serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    user-select: none;
+  }
+  #game-canvas {
+    display: block;
+    cursor: crosshair;
+    border-radius: 8px;
+    box-shadow: 0 0 40px rgba(255, 200, 80, 0.08);
+  }
+  #ui-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  #ui-overlay > div { pointer-events: auto; }
+  .panel {
+    background: rgba(20, 16, 10, 0.92);
+    border: 1px solid rgba(255, 200, 80, 0.2);
+    border-radius: 12px;
+    padding: 32px 40px;
+    text-align: center;
+    max-width: 380px;
+    width: 90vw;
+    box-shadow: 0 0 60px rgba(255, 180, 50, 0.06);
+  }
+  .panel h1 {
+    font-size: 1.8em;
+    color: #ffc850;
+    margin-bottom: 4px;
+    text-shadow: 0 0 20px rgba(255, 200, 80, 0.3);
+  }
+  .panel h2 {
+    font-size: 1.3em;
+    color: #ffc850;
+    margin-bottom: 12px;
+  }
+  .panel p {
+    font-size: 0.95em;
+    line-height: 1.5;
+    color: #c8b898;
+    margin-bottom: 12px;
+  }
+  .panel .subtitle {
+    font-style: italic;
+    color: #a08860;
+    font-size: 0.85em;
+    margin-bottom: 16px;
+  }
+  .btn {
+    display: inline-block;
+    background: linear-gradient(135deg, #b8860b, #d4a020);
+    color: #1a1408;
+    border: none;
+    padding: 10px 28px;
+    font-size: 1em;
+    font-family: Georgia, serif;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-top: 8px;
+    font-weight: bold;
+    transition: transform 0.1s;
+  }
+  .btn:hover { transform: scale(1.04); }
+  .btn:active { transform: scale(0.97); }
+  .score-final {
+    font-size: 2.2em;
+    color: #ffc850;
+    margin: 8px 0;
+    text-shadow: 0 0 18px rgba(255, 200, 80, 0.4);
+  }
+  input[type="text"] {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255, 200, 80, 0.3);
+    color: #e8dcc8;
+    padding: 8px 12px;
+    font-size: 1em;
+    font-family: Georgia, serif;
+    border-radius: 4px;
+    width: 100%;
+    max-width: 220px;
+    text-align: center;
+    margin: 8px 0;
+    outline: none;
+  }
+  input[type="text"]:focus {
+    border-color: #ffc850;
+    box-shadow: 0 0 8px rgba(255, 200, 80, 0.2);
+  }
+  .score-table {
+    margin-top: 12px;
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .score-table th {
+    color: #a08860;
+    font-size: 0.8em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(255,200,80,0.15);
+  }
+  .score-table td {
+    padding: 3px 8px;
+    font-size: 0.9em;
+    color: #c8b898;
+  }
+  .score-table tr:nth-child(1) td { color: #ffc850; }
+  .score-table tr:nth-child(2) td { color: #e0c480; }
+  .score-table tr:nth-child(3) td { color: #c8a860; }
+  .msg { font-size: 0.85em; margin-top: 6px; min-height: 1.2em; }
+  .msg.error { color: #e07050; }
+  .msg.ok { color: #80c870; }
+  #hud {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 20px;
+    font-size: 1.1em;
+    pointer-events: none;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+  }
+  #hud span { color: #ffc850; }
+</style>
+</head>
+<body>
+
+<canvas id="game-canvas"></canvas>
+<div id="hud" style="display:none">
+  <div>Score: <span id="hud-score">0</span></div>
+  <div>Time: <span id="hud-time">60</span>s</div>
+  <div>Caught: <span id="hud-caught">0</span> / <span id="hud-escaped">0</span> escaped</div>
+</div>
+<div id="ui-overlay"><div id="screen"></div></div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('game-canvas');
+  const ctx = canvas.getContext('2d');
+  const hud = document.getElementById('hud');
+  const screen = document.getElementById('screen');
+
+  const ROUND_DURATION = 60;
+  const SPAWN_INTERVAL_START = 800;
+  const SPAWN_INTERVAL_END = 400;
+  const FIREFLY_LIFESPAN_MIN = 2500;
+  const FIREFLY_LIFESPAN_MAX = 5000;
+  const CATCH_RADIUS = 30;
+
+  let W, H;
+  let state = 'menu';
+  let fireflies = [];
+  let particles = [];
+  let stars = [];
+  let score = 0;
+  let caught = 0;
+  let escaped = 0;
+  let timeLeft = ROUND_DURATION;
+  let lastSpawn = 0;
+  let gameStartTime = 0;
+  let animFrame = null;
+  let saving = false;
+
+  function resize() {
+    const maxW = Math.min(window.innerWidth - 20, 800);
+    const maxH = Math.min(window.innerHeight - 20, 600);
+    W = canvas.width = maxW;
+    H = canvas.height = maxH;
+    initStars();
+  }
+
+  function initStars() {
+    stars = [];
+    for (let i = 0; i < 80; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H * 0.6,
+        r: Math.random() * 1.2 + 0.3,
+        twinkle: Math.random() * Math.PI * 2,
+        speed: Math.random() * 0.02 + 0.005
+      });
+    }
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+
+  function drawBackground(t) {
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+    skyGrad.addColorStop(0, '#0a0e1a');
+    skyGrad.addColorStop(0.45, '#14182a');
+    skyGrad.addColorStop(0.7, '#1e1a14');
+    skyGrad.addColorStop(1, '#0d0a06');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    for (const s of stars) {
+      s.twinkle += s.speed;
+      const alpha = 0.3 + 0.5 * Math.abs(Math.sin(s.twinkle));
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 240, 200, ${alpha})`;
+      ctx.fill();
+    }
+
+    drawTreeLine(t);
+    drawGround();
+  }
+
+  function drawTreeLine(t) {
+    ctx.fillStyle = '#0a0804';
+    const baseY = H * 0.65;
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+
+    for (let x = 0; x <= W; x += 2) {
+      const trunk1 = Math.exp(-((x - W * 0.15) ** 2) / 3000) * 100;
+      const trunk2 = Math.exp(-((x - W * 0.4) ** 2) / 2000) * 120;
+      const trunk3 = Math.exp(-((x - W * 0.65) ** 2) / 4000) * 90;
+      const trunk4 = Math.exp(-((x - W * 0.85) ** 2) / 2500) * 110;
+      const canopy = Math.sin(x * 0.02) * 8 + Math.sin(x * 0.05 + t * 0.0003) * 4;
+      const y = baseY - trunk1 - trunk2 - trunk3 - trunk4 + canopy;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawGround() {
+    const groundGrad = ctx.createLinearGradient(0, H * 0.85, 0, H);
+    groundGrad.addColorStop(0, '#1a1408');
+    groundGrad.addColorStop(1, '#0d0a06');
+    ctx.fillStyle = groundGrad;
+    ctx.fillRect(0, H * 0.85, W, H * 0.15);
+  }
+
+  function spawnFirefly() {
+    const x = Math.random() * (W - 60) + 30;
+    const y = Math.random() * H * 0.3 + H * 0.05;
+    const lifespan = FIREFLY_LIFESPAN_MIN + Math.random() * (FIREFLY_LIFESPAN_MAX - FIREFLY_LIFESPAN_MIN);
+    fireflies.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 0.8,
+      vy: Math.random() * 0.3 + 0.15,
+      born: performance.now(),
+      lifespan,
+      radius: 6 + Math.random() * 4,
+      pulsePhase: Math.random() * Math.PI * 2,
+      caught: false,
+      hue: 40 + Math.random() * 30
+    });
+  }
+
+  function drawFirefly(f, t) {
+    const age = t - f.born;
+    const life = age / f.lifespan;
+    if (life > 1) return;
+
+    const fadeIn = Math.min(age / 400, 1);
+    const fadeOut = life > 0.7 ? 1 - (life - 0.7) / 0.3 : 1;
+    const pulse = 0.6 + 0.4 * Math.sin(t * 0.006 + f.pulsePhase);
+    const alpha = fadeIn * fadeOut * pulse;
+
+    const glowR = f.radius * 4;
+    const grad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, glowR);
+    grad.addColorStop(0, `hsla(${f.hue}, 100%, 80%, ${alpha * 0.9})`);
+    grad.addColorStop(0.3, `hsla(${f.hue}, 90%, 60%, ${alpha * 0.4})`);
+    grad.addColorStop(1, `hsla(${f.hue}, 80%, 40%, 0)`);
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, glowR, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.radius * 0.5, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${f.hue}, 100%, 90%, ${alpha})`;
+    ctx.fill();
+  }
+
+  function updateFirefly(f, t, dt) {
+    f.x += f.vx * (dt / 16);
+    f.y += f.vy * (dt / 16);
+    f.vx += (Math.random() - 0.5) * 0.1;
+    f.vx *= 0.98;
+    f.x = Math.max(10, Math.min(W - 10, f.x));
+  }
+
+  function spawnCatchParticles(x, y, hue) {
+    for (let i = 0; i < 12; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 3 + 1;
+      particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1,
+        decay: 0.015 + Math.random() * 0.015,
+        hue,
+        size: Math.random() * 3 + 1
+      });
+    }
+  }
+
+  function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * (dt / 16);
+      p.y += p.vy * (dt / 16);
+      p.vy += 0.03;
+      p.life -= p.decay * (dt / 16);
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function drawParticles() {
+    for (const p of particles) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${p.hue}, 100%, 75%, ${p.life})`;
+      ctx.fill();
+    }
+  }
+
+  function calcScore(f, t) {
+    const age = t - f.born;
+    const life = age / f.lifespan;
+    const fadeOut = life > 0.7 ? 1 - (life - 0.7) / 0.3 : 1;
+    const brightness = Math.max(0.1, fadeOut);
+    return Math.round(10 + 40 * brightness);
+  }
+
+  function handleClick(e) {
+    if (state !== 'playing') return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (W / rect.width);
+    const my = (e.clientY - rect.top) * (H / rect.height);
+
+    let closest = null;
+    let closestDist = Infinity;
+
+    for (const f of fireflies) {
+      if (f.caught) continue;
+      const dx = f.x - mx;
+      const dy = f.y - my;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < CATCH_RADIUS && dist < closestDist) {
+        closest = f;
+        closestDist = dist;
+      }
+    }
+
+    if (closest) {
+      closest.caught = true;
+      const pts = calcScore(closest, performance.now());
+      score += pts;
+      caught++;
+      spawnCatchParticles(closest.x, closest.y, closest.hue);
+      showFloatingText(closest.x, closest.y - 10, `+${pts}`);
+    }
+  }
+
+  let floatingTexts = [];
+  function showFloatingText(x, y, text) {
+    floatingTexts.push({ x, y, text, life: 1 });
+  }
+
+  function updateFloatingTexts(dt) {
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+      const ft = floatingTexts[i];
+      ft.y -= 0.8 * (dt / 16);
+      ft.life -= 0.02 * (dt / 16);
+      if (ft.life <= 0) floatingTexts.splice(i, 1);
+    }
+  }
+
+  function drawFloatingTexts() {
+    ctx.font = 'bold 16px Georgia';
+    ctx.textAlign = 'center';
+    for (const ft of floatingTexts) {
+      ctx.fillStyle = `rgba(255, 200, 80, ${ft.life})`;
+      ctx.fillText(ft.text, ft.x, ft.y);
+    }
+  }
+
+  canvas.addEventListener('click', handleClick);
+  canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    handleClick({ clientX: touch.clientX, clientY: touch.clientY });
+  }, { passive: false });
+
+  let lastTime = 0;
+  function gameLoop(t) {
+    const dt = Math.min(t - (lastTime || t), 50);
+    lastTime = t;
+
+    if (state === 'playing') {
+      const elapsed = (t - gameStartTime) / 1000;
+      timeLeft = Math.max(0, ROUND_DURATION - elapsed);
+
+      const progress = elapsed / ROUND_DURATION;
+      const interval = SPAWN_INTERVAL_START + (SPAWN_INTERVAL_END - SPAWN_INTERVAL_START) * progress;
+      if (t - lastSpawn > interval) {
+        spawnFirefly();
+        lastSpawn = t;
+      }
+
+      for (const f of fireflies) updateFirefly(f, t, dt);
+
+      for (let i = fireflies.length - 1; i >= 0; i--) {
+        const f = fireflies[i];
+        const age = t - f.born;
+        if (f.caught) {
+          fireflies.splice(i, 1);
+        } else if (age > f.lifespan && !f.caught) {
+          escaped++;
+          fireflies.splice(i, 1);
+        }
+      }
+
+      updateParticles(dt);
+      updateFloatingTexts(dt);
+
+      document.getElementById('hud-score').textContent = score;
+      document.getElementById('hud-time').textContent = Math.ceil(timeLeft);
+      document.getElementById('hud-caught').textContent = caught;
+      document.getElementById('hud-escaped').textContent = escaped;
+
+      if (timeLeft <= 0) {
+        state = 'gameover';
+        hud.style.display = 'none';
+        showGameOver();
+      }
+    }
+
+    drawBackground(t);
+    for (const f of fireflies) drawFirefly(f, t);
+    drawParticles();
+    drawFloatingTexts();
+
+    animFrame = requestAnimationFrame(gameLoop);
+  }
+
+  function startGame() {
+    fireflies = [];
+    particles = [];
+    floatingTexts = [];
+    score = 0;
+    caught = 0;
+    escaped = 0;
+    timeLeft = ROUND_DURATION;
+    lastSpawn = 0;
+    gameStartTime = performance.now();
+    state = 'playing';
+    hud.style.display = 'flex';
+    screen.innerHTML = '';
+  }
+
+  function renderMenu(scores) {
+    let tableHTML = '';
+    if (scores.length > 0) {
+      tableHTML = `<table class="score-table">
+        <tr><th>#</th><th>Name</th><th>Score</th></tr>
+        ${scores.slice(0, 10).map((s, i) =>
+          `<tr><td>${i + 1}</td><td>${esc(s.name)}</td><td>${s.score}</td></tr>`
+        ).join('')}
+      </table>`;
+    }
+    screen.innerHTML = `<div class="panel">
+      <h1>Ohio Firefly Night</h1>
+      <p class="subtitle">A cozy autumn evening</p>
+      <p>Click or tap the glowing fireflies before they fade into the dark. Brighter fireflies are worth more points!</p>
+      <p style="font-size:0.85em; color:#a08860">60-second round &middot; catch them while they glow</p>
+      <button class="btn" id="btn-start">Begin</button>
+      ${tableHTML ? '<h2 style="margin-top:20px">High Scores</h2>' + tableHTML : ''}
+    </div>`;
+    document.getElementById('btn-start').addEventListener('click', startGame);
+  }
+
+  function showMenuWithScores(scores) {
+    state = 'menu';
+    hud.style.display = 'none';
+    renderMenu(scores);
+  }
+
+  function showMenu() {
+    state = 'menu';
+    hud.style.display = 'none';
+    fetchScores().then(renderMenu);
+  }
+
+  function showGameOver() {
+    screen.innerHTML = `<div class="panel">
+      <h2>Night is Over</h2>
+      <div class="score-final">${score}</div>
+      <p>You caught ${caught} fireflies. ${escaped} escaped into the dark.</p>
+      <div>
+        <input type="text" id="name-input" placeholder="Your name" maxlength="20" autocomplete="off" />
+      </div>
+      <button class="btn" id="btn-save">Save Score</button>
+      <button class="btn" id="btn-skip" style="background:transparent;color:#a08860;border:1px solid #a08860;margin-left:8px">Skip</button>
+      <div class="msg" id="save-msg"></div>
+    </div>`;
+
+    const nameInput = document.getElementById('name-input');
+    const btnSave = document.getElementById('btn-save');
+    const btnSkip = document.getElementById('btn-skip');
+    const saveMsg = document.getElementById('save-msg');
+
+    nameInput.focus();
+
+    nameInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        btnSave.click();
+      }
+    });
+
+    btnSave.addEventListener('click', async function() {
+      if (saving) return;
+      const name = nameInput.value.trim();
+      if (!name) {
+        saveMsg.className = 'msg error';
+        saveMsg.textContent = 'Please enter a name.';
+        return;
+      }
+      saving = true;
+      btnSave.disabled = true;
+      btnSave.textContent = 'Saving...';
+      saveMsg.className = 'msg';
+      saveMsg.textContent = '';
+
+      try {
+        const resp = await fetch('api/scores', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, score })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          saveMsg.className = 'msg error';
+          saveMsg.textContent = data.error || 'Failed to save.';
+          saving = false;
+          btnSave.disabled = false;
+          btnSave.textContent = 'Save Score';
+          return;
+        }
+        saveMsg.className = 'msg ok';
+        saveMsg.textContent = 'Saved!';
+        const freshScores = await fetchScores();
+        setTimeout(() => showMenuWithScores(freshScores), 1200);
+      } catch (err) {
+        saveMsg.className = 'msg error';
+        saveMsg.textContent = 'Network error. Try again.';
+        saving = false;
+        btnSave.disabled = false;
+        btnSave.textContent = 'Save Score';
+      }
+    });
+
+    btnSkip.addEventListener('click', showMenu);
+  }
+
+  async function fetchScores() {
+    try {
+      const resp = await fetch('api/scores');
+      if (!resp.ok) return [];
+      return await resp.json();
+    } catch { return []; }
+  }
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  animFrame = requestAnimationFrame(gameLoop);
+  showMenu();
+})();
+</script>
+</body>
+</html>
