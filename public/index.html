@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ohio Fireflies</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0d1117;
+  color: #e8dcc8;
+  font-family: Georgia, 'Times New Roman', serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+h1 {
+  margin-top: 18px;
+  font-size: 1.6rem;
+  color: #f5deb3;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 12px rgba(255,200,50,0.3);
+}
+.subtitle {
+  font-size: 0.85rem;
+  color: #a89070;
+  margin-bottom: 10px;
+  font-style: italic;
+}
+#game-wrapper {
+  position: relative;
+  margin: 8px auto;
+}
+canvas {
+  display: block;
+  border-radius: 8px;
+  cursor: pointer;
+}
+#hud {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 1rem;
+  color: #f5deb3;
+  text-shadow: 0 0 6px rgba(0,0,0,0.8);
+  pointer-events: none;
+  z-index: 2;
+}
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(13,17,23,0.85);
+  border-radius: 8px;
+  z-index: 3;
+  text-align: center;
+  padding: 20px;
+}
+#overlay.hidden { display: none; }
+#overlay h2 {
+  font-size: 1.5rem;
+  color: #f5deb3;
+  margin-bottom: 8px;
+}
+#overlay p {
+  font-size: 0.95rem;
+  color: #c4a882;
+  margin-bottom: 6px;
+  max-width: 340px;
+  line-height: 1.4;
+}
+.btn {
+  margin-top: 12px;
+  padding: 10px 28px;
+  font-size: 1rem;
+  font-family: Georgia, serif;
+  background: #3a2a10;
+  color: #f5deb3;
+  border: 1px solid #6b4f28;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn:hover { background: #4d3815; }
+.btn:focus { outline: 2px solid #f5deb3; outline-offset: 2px; }
+#name-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+#name-input {
+  padding: 8px 12px;
+  font-size: 1rem;
+  font-family: Georgia, serif;
+  background: #1a1510;
+  color: #f5deb3;
+  border: 1px solid #6b4f28;
+  border-radius: 4px;
+  text-align: center;
+  width: 200px;
+}
+#name-input:focus { outline: 2px solid #f5deb3; outline-offset: 1px; }
+#save-error {
+  color: #e07050;
+  font-size: 0.85rem;
+  min-height: 1.2em;
+}
+#scoreboard {
+  width: 100%;
+  max-width: 420px;
+  margin: 12px auto 30px;
+  padding: 0 12px;
+}
+#scoreboard h3 {
+  text-align: center;
+  color: #c4a882;
+  margin-bottom: 8px;
+  font-size: 1rem;
+}
+#score-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+#score-table th {
+  color: #a89070;
+  font-weight: normal;
+  text-align: left;
+  border-bottom: 1px solid #2a2015;
+  padding: 4px 6px;
+}
+#score-table th:last-child,
+#score-table td:last-child { text-align: right; }
+#score-table td {
+  padding: 4px 6px;
+  color: #e8dcc8;
+}
+#score-table tr:nth-child(even) td { background: rgba(255,200,50,0.03); }
+</style>
+</head>
+<body>
+<h1>Ohio Fireflies</h1>
+<p class="subtitle">A cozy autumn night&mdash;catch the glow before it fades</p>
+
+<div id="game-wrapper">
+  <canvas id="game"></canvas>
+  <div id="hud">
+    <span id="hud-score">Score: 0</span>
+    <span id="hud-time">Time: 45</span>
+  </div>
+  <div id="overlay">
+    <h2 id="overlay-title">Ohio Fireflies</h2>
+    <p id="overlay-text">Fireflies drift down through the autumn night. Click or tap them before they fade away. Brighter fireflies are worth more&mdash;catch them at their peak glow!</p>
+    <p id="overlay-score-line" style="display:none"></p>
+    <div id="name-form" style="display:none">
+      <input id="name-input" type="text" maxlength="20" placeholder="Your name" autocomplete="off">
+      <span id="save-error"></span>
+      <button class="btn" id="save-btn" type="button">Save Score</button>
+    </div>
+    <button class="btn" id="start-btn">Start</button>
+  </div>
+</div>
+
+<div id="scoreboard">
+  <h3>High Scores</h3>
+  <table id="score-table">
+    <thead><tr><th>#</th><th>Name</th><th>Score</th></tr></thead>
+    <tbody id="score-body"></tbody>
+  </table>
+</div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = 480, H = 560;
+  canvas.width = W;
+  canvas.height = H;
+
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlay-title');
+  const overlayText = document.getElementById('overlay-text');
+  const overlayScoreLine = document.getElementById('overlay-score-line');
+  const nameForm = document.getElementById('name-form');
+  const nameInput = document.getElementById('name-input');
+  const saveBtn = document.getElementById('save-btn');
+  const saveError = document.getElementById('save-error');
+  const startBtn = document.getElementById('start-btn');
+  const hudScore = document.getElementById('hud-score');
+  const hudTime = document.getElementById('hud-time');
+
+  const GAME_DURATION = 45;
+  const FIREFLY_INTERVAL_MIN = 400;
+  const FIREFLY_INTERVAL_MAX = 1100;
+  const FIREFLY_LIFESPAN_MIN = 2200;
+  const FIREFLY_LIFESPAN_MAX = 4000;
+  const FIREFLY_RADIUS = 18;
+
+  let fireflies = [];
+  let leaves = [];
+  let particles = [];
+  let score = 0;
+  let timeLeft = GAME_DURATION;
+  let playing = false;
+  let gameOver = false;
+  let lastFrame = 0;
+  let spawnTimer = 0;
+  let timerAccum = 0;
+  let saving = false;
+  let animId = null;
+
+  const WARM_PALETTE = [
+    [255, 210, 80],
+    [255, 180, 60],
+    [200, 255, 100],
+    [255, 240, 120],
+    [220, 200, 60],
+  ];
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
+
+  function initLeaves() {
+    leaves = [];
+    for (let i = 0; i < 18; i++) {
+      leaves.push({
+        x: rand(0, W),
+        y: rand(-H, H),
+        size: rand(4, 9),
+        speed: rand(12, 30),
+        drift: rand(-8, 8),
+        rot: rand(0, Math.PI * 2),
+        rotSpeed: rand(-0.5, 0.5),
+        color: ['#8B4513','#A0522D','#CD853F','#D2691E','#B8860B','#6B3A20'][randInt(0, 5)],
+        opacity: rand(0.15, 0.35),
+      });
+    }
+  }
+
+  function spawnFirefly() {
+    const lifespan = rand(FIREFLY_LIFESPAN_MIN, FIREFLY_LIFESPAN_MAX);
+    const color = WARM_PALETTE[randInt(0, WARM_PALETTE.length - 1)];
+    fireflies.push({
+      x: rand(30, W - 30),
+      y: rand(-10, 40),
+      vx: rand(-15, 15),
+      vy: rand(25, 55),
+      radius: rand(12, FIREFLY_RADIUS),
+      lifespan,
+      age: 0,
+      color,
+      caught: false,
+      pulsePhase: rand(0, Math.PI * 2),
+    });
+  }
+
+  function brightness(fly) {
+    const t = fly.age / fly.lifespan;
+    if (t < 0.2) return t / 0.2;
+    if (t < 0.5) return 1.0;
+    return Math.max(0, 1.0 - (t - 0.5) / 0.5);
+  }
+
+  function scoreForFirefly(fly) {
+    const b = brightness(fly);
+    return Math.round(b * 10) * 10;
+  }
+
+  function spawnCatchParticles(x, y, color) {
+    for (let i = 0; i < 8; i++) {
+      const angle = rand(0, Math.PI * 2);
+      const speed = rand(30, 80);
+      particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.5,
+        age: 0,
+        color,
+        size: rand(2, 5),
+      });
+    }
+  }
+
+  function handleClick(e) {
+    if (!playing) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const scaleY = H / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+
+    let bestIdx = -1;
+    let bestDist = Infinity;
+    for (let i = fireflies.length - 1; i >= 0; i--) {
+      const f = fireflies[i];
+      if (f.caught) continue;
+      const dx = mx - f.x;
+      const dy = my - f.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const hitRadius = f.radius + 10;
+      if (dist < hitRadius && dist < bestDist) {
+        bestDist = dist;
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx >= 0) {
+      const f = fireflies[bestIdx];
+      const pts = scoreForFirefly(f);
+      score += pts;
+      hudScore.textContent = 'Score: ' + score;
+      f.caught = true;
+      spawnCatchParticles(f.x, f.y, f.color);
+    }
+  }
+
+  canvas.addEventListener('click', handleClick);
+  canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    if (e.touches.length > 0) {
+      const touch = e.touches[0];
+      handleClick({ clientX: touch.clientX, clientY: touch.clientY });
+    }
+  }, { passive: false });
+
+  function drawBackground() {
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#0a0e1a');
+    grad.addColorStop(0.3, '#111828');
+    grad.addColorStop(0.7, '#1a1510');
+    grad.addColorStop(1, '#0d0a06');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = 'rgba(255,255,200,0.6)';
+    const stars = [[50,30],[120,60],[200,20],[310,50],[400,35],[80,100],[350,90],[450,70],[160,80],[260,45],[30,65],[420,100],[240,15],[370,25],[140,40]];
+    stars.forEach(([sx, sy]) => {
+      ctx.beginPath();
+      ctx.arc(sx, sy, 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    ctx.fillStyle = '#1a1208';
+    ctx.beginPath();
+    ctx.moveTo(0, H - 60);
+    ctx.quadraticCurveTo(80, H - 90, 160, H - 65);
+    ctx.quadraticCurveTo(240, H - 40, 320, H - 70);
+    ctx.quadraticCurveTo(400, H - 95, W, H - 55);
+    ctx.lineTo(W, H);
+    ctx.lineTo(0, H);
+    ctx.fill();
+
+    drawTree(100, H - 60, 0.7);
+    drawTree(380, H - 55, 0.85);
+  }
+
+  function drawTree(bx, by, scale) {
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = '#1a0e05';
+    ctx.fillRect(-6, -80, 12, 80);
+    const foliageColors = ['#2a1a08','#1e1408','#231508'];
+    foliageColors.forEach((c, i) => {
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.arc(0 + (i - 1) * 15, -90 - i * 10, 30 + i * 5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  function drawLeaves(dt) {
+    leaves.forEach(l => {
+      l.y += l.speed * dt;
+      l.x += l.drift * dt;
+      l.rot += l.rotSpeed * dt;
+      if (l.y > H + 20) { l.y = -20; l.x = rand(0, W); }
+      if (l.x < -20) l.x = W + 20;
+      if (l.x > W + 20) l.x = -20;
+      ctx.save();
+      ctx.translate(l.x, l.y);
+      ctx.rotate(l.rot);
+      ctx.globalAlpha = l.opacity;
+      ctx.fillStyle = l.color;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, l.size, l.size * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    });
+  }
+
+  function drawFireflies(dt) {
+    fireflies.forEach(f => {
+      if (f.caught) return;
+      f.age += dt * 1000;
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.pulsePhase += dt * 4;
+      if (f.x < 10) f.vx = Math.abs(f.vx);
+      if (f.x > W - 10) f.vx = -Math.abs(f.vx);
+
+      const b = brightness(f);
+      if (b <= 0) return;
+      const pulse = 0.7 + 0.3 * Math.sin(f.pulsePhase);
+      const alpha = b * pulse;
+      const [r, g, bl] = f.color;
+
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.15;
+      const glowGrad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.radius * 3);
+      glowGrad.addColorStop(0, `rgba(${r},${g},${bl},0.4)`);
+      glowGrad.addColorStop(1, `rgba(${r},${g},${bl},0)`);
+      ctx.fillStyle = glowGrad;
+      ctx.fillRect(f.x - f.radius * 3, f.y - f.radius * 3, f.radius * 6, f.radius * 6);
+      ctx.globalAlpha = 1;
+
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.radius * 0.35, 0, Math.PI * 2);
+      ctx.fillStyle = `rgb(${r},${g},${bl})`;
+      ctx.fill();
+
+      ctx.globalAlpha = alpha * 0.6;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.radius * 0.65, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${bl},0.3)`;
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  function drawParticles(dt) {
+    particles.forEach(p => {
+      p.age += dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 40 * dt;
+      const life = 1 - p.age / p.life;
+      if (life <= 0) return;
+      const [r, g, b] = p.color;
+      ctx.globalAlpha = life * 0.8;
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * life, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+    particles = particles.filter(p => p.age < p.life);
+  }
+
+  function update(dt) {
+    spawnTimer -= dt * 1000;
+    if (spawnTimer <= 0) {
+      spawnFirefly();
+      spawnTimer = rand(FIREFLY_INTERVAL_MIN, FIREFLY_INTERVAL_MAX);
+    }
+
+    fireflies = fireflies.filter(f => {
+      if (f.caught) return false;
+      if (f.age >= f.lifespan) return false;
+      if (f.y > H + 30) return false;
+      return true;
+    });
+
+    timerAccum += dt;
+    if (timerAccum >= 1) {
+      timerAccum -= 1;
+      timeLeft--;
+      hudTime.textContent = 'Time: ' + Math.max(0, timeLeft);
+      if (timeLeft <= 0) {
+        endGame();
+      }
+    }
+  }
+
+  function frame(ts) {
+    if (!playing && !gameOver) {
+      drawBackground();
+      drawLeaves(0.016);
+      animId = requestAnimationFrame(frame);
+      return;
+    }
+    const dt = Math.min((ts - lastFrame) / 1000, 0.1);
+    lastFrame = ts;
+
+    drawBackground();
+    drawLeaves(dt);
+
+    if (playing) {
+      update(dt);
+      drawFireflies(dt);
+      drawParticles(dt);
+    }
+
+    animId = requestAnimationFrame(frame);
+  }
+
+  function startGame() {
+    score = 0;
+    timeLeft = GAME_DURATION;
+    fireflies = [];
+    particles = [];
+    spawnTimer = 0;
+    timerAccum = 0;
+    playing = true;
+    gameOver = false;
+    hudScore.textContent = 'Score: 0';
+    hudTime.textContent = 'Time: ' + GAME_DURATION;
+    overlay.classList.add('hidden');
+    nameForm.style.display = 'none';
+    overlayScoreLine.style.display = 'none';
+    saveError.textContent = '';
+    saving = false;
+    lastFrame = performance.now();
+  }
+
+  function endGame() {
+    playing = false;
+    gameOver = true;
+    overlayTitle.textContent = 'Night is Over';
+    overlayText.textContent = 'The fireflies have gone to rest.';
+    overlayScoreLine.textContent = 'Your score: ' + score;
+    overlayScoreLine.style.display = 'block';
+    nameForm.style.display = 'flex';
+    nameInput.value = '';
+    saveError.textContent = '';
+    startBtn.textContent = 'Play Again';
+    overlay.classList.remove('hidden');
+    saving = false;
+    nameInput.focus();
+    loadScores();
+  }
+
+  saveBtn.addEventListener('click', submitScore);
+  nameInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitScore();
+    }
+  });
+
+  async function submitScore() {
+    if (saving) return;
+    const name = nameInput.value.trim();
+    if (!name) {
+      saveError.textContent = 'Please enter your name.';
+      return;
+    }
+    if (name.length > 20) {
+      saveError.textContent = 'Name must be 20 characters or fewer.';
+      return;
+    }
+    saving = true;
+    saveError.textContent = '';
+    saveBtn.textContent = 'Saving...';
+    try {
+      const resp = await fetch('api/scores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, score }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to save score.');
+      }
+      nameForm.style.display = 'none';
+      saveError.textContent = '';
+      loadScores();
+    } catch (err) {
+      saveError.textContent = err.message;
+      saving = false;
+    } finally {
+      saveBtn.textContent = 'Save Score';
+    }
+  }
+
+  startBtn.addEventListener('click', startGame);
+
+  async function loadScores() {
+    try {
+      const resp = await fetch('api/scores');
+      if (!resp.ok) return;
+      const rows = await resp.json();
+      const tbody = document.getElementById('score-body');
+      tbody.innerHTML = '';
+      rows.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + (i + 1) + '</td><td>' + escapeHtml(r.name) + '</td><td>' + r.score + '</td>';
+        tbody.appendChild(tr);
+      });
+    } catch (_) {}
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  initLeaves();
+  loadScores();
+  animId = requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
